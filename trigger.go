@@ -67,8 +67,8 @@ func (t *Trigger) Create(tx *sql.Tx, dropIfExists bool) (err error) {
 
 	var sql string
 
-	if t.Type == DeleteTriggerType {
-		sql = fmt.Sprintf(SqlRequests[t.Type], t.Name, t.From, t.To, strings.Join(t.Fields, "`, NEW.`"))
+	if t.Type != DeleteTriggerType {
+		sql = fmt.Sprintf(SqlRequests[t.Type], t.Name, t.From, t.To, strings.Join(t.Fields, "`, `"), strings.Join(t.Fields, "`, NEW.`"))
 	} else {
 		sql = fmt.Sprintf(SqlRequests[t.Type], t.Name, t.From, t.To, t.To)
 	}
