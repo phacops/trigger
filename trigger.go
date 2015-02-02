@@ -21,16 +21,14 @@ var (
 )
 
 type Trigger struct {
-	Schema string
-	Name   string
-	Type   int
-	From   string
-	To     string
-	Fields []string
+	Name string
+	Type int
+	From string
+	To   string
 }
 
-func New(schema, name, fromTable, toTable string, triggerType int, fields []string) (*Trigger, error) {
-	if schema == "" || name == "" || fromTable == "" || toTable == "" || len(fields) == 0 {
+func New(name, fromTable, toTable string, triggerType int) (*Trigger, error) {
+	if name == "" || fromTable == "" || toTable == "" {
 		return nil, fmt.Errorf("no empty value allowed")
 	}
 
@@ -39,13 +37,34 @@ func New(schema, name, fromTable, toTable string, triggerType int, fields []stri
 	}
 
 	return &Trigger{
-		Schema: schema,
-		Name:   name,
-		Type:   triggerType,
-		From:   fromTable,
-		To:     toTable,
-		Fields: fields,
+		Name: name,
+		Type: triggerType,
+		From: fromTable,
+		To:   toTable,
 	}, nil
+}
+
+func fieldsFromTable(tx *sql.Tx, table string) (fields []string, err error) {
+	rows, err := tx.Query("show columns from `" + table + "`")
+
+	if err != nil {
+		return
+	}
+
+	var fieldName, fieldType, fieldNull, fieldKey, fieldExtra string
+	var fieldDefault sql.NullString
+
+	for rows.Next() {
+		err = rows.Scan(&fieldName, &fieldType, &fieldNull, &fieldKey, &fieldDefault, &fieldExtra)
+
+		if err != nil {
+			return
+		}
+
+		fields = append(fields, fieldName)
+	}
+
+	return
 }
 
 func (t *Trigger) Create(tx *sql.Tx, dropIfExists bool) (err error) {
@@ -65,10 +84,16 @@ func (t *Trigger) Create(tx *sql.Tx, dropIfExists bool) (err error) {
 		return fmt.Errorf("trigger type not supported")
 	}
 
+	fields, err := fieldsFromTable(tx, t.To)
+
+	if err != nil {
+		return
+	}
+
 	var sql string
 
 	if t.Type != DeleteTriggerType {
-		sql = fmt.Sprintf(SqlRequests[t.Type], t.Name, t.From, t.To, strings.Join(t.Fields, "`, `"), strings.Join(t.Fields, "`, NEW.`"))
+		sql = fmt.Sprintf(SqlRequests[t.Type], t.Name, t.From, t.To, strings.Join(fields, "`, `"), strings.Join(fields, "`, NEW.`"))
 	} else {
 		sql = fmt.Sprintf(SqlRequests[t.Type], t.Name, t.From, t.To, t.To)
 	}
@@ -83,7 +108,15 @@ func (t *Trigger) Drop(tx *sql.Tx) error {
 		return fmt.Errorf("a valid transaction is needed")
 	}
 
-	_, err := tx.Exec(fmt.Sprintf("drop trigger if exists `%s`.`%s`", t.Schema, t.Name))
+	var schema string
+
+	err := tx.QueryRow("select database()").Scan(&schema)
+
+	if err != nil {
+		return err
+	}
+
+	_, err = tx.Exec(fmt.Sprintf("drop trigger if exists `%s`.`%s`", schema, t.Name))
 
 	return err
 }
